@@ -2,25 +2,46 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>当日受付 PWA</title>
   <!-- カメラQRスキャナーライブラリ -->
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; padding: 15px; margin: 0; background: #f0f2f5; }
-    h2 { margin-top: 10px; color: #333; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; padding: 10px; margin: 0; background: #f0f2f5; }
+    h2 { margin: 10px 0; color: #333; font-size: 1.3em; }
+    
+    /* スキャナー周りのレイアウトをすっきりさせる */
     #reader { width: 100%; max-width: 400px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-    .result-box { margin-top: 15px; padding: 15px; border-radius: 10px; font-weight: bold; font-size: 1.1em; }
+    
+    /* ライブラリが自動生成するごちゃっとしたボタン・テキストを調整・整理 */
+    #reader button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 1em;
+      margin: 10px 0;
+      cursor: pointer;
+    }
+    #reader select {
+      padding: 8px;
+      border-radius: 6px;
+      margin: 5px 0;
+      font-size: 0.9em;
+    }
+
+    .result-box { margin-top: 15px; padding: 12px; border-radius: 10px; font-weight: bold; font-size: 1.05em; }
     .success { background: #d4edda; color: #155724; border: 2px solid #c3e6cb; }
     .error { background: #f8d7da; color: #721c24; border: 2px solid #f5c6cb; }
     .warning { background: #fff3cd; color: #856404; border: 2px solid #ffeeba; }
     
-    .dashboard { margin-top: 20px; background: #fff; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-    .stat-row { display: flex; justify-content: space-around; margin: 15px 0; }
-    .stat-card { background: #f8f9fa; padding: 10px 15px; border-radius: 8px; flex: 1; margin: 0 5px; }
-    .stat-num { font-size: 1.5em; font-weight: bold; color: #007bff; margin-top: 5px; }
-    .band-list { text-align: left; background: #f8f9fa; padding: 10px 20px; border-radius: 8px; }
-    .band-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #e9ecef; }
+    .dashboard { margin-top: 15px; background: #fff; padding: 12px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    .stat-row { display: flex; justify-content: space-around; margin: 10px 0; }
+    .stat-card { background: #f8f9fa; padding: 8px 10px; border-radius: 8px; flex: 1; margin: 0 5px; }
+    .stat-num { font-size: 1.3em; font-weight: bold; color: #007bff; margin-top: 3px; }
+    .band-list { text-align: left; background: #f8f9fa; padding: 8px 15px; border-radius: 8px; max-height: 150px; overflow-y: auto; }
+    .band-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #e9ecef; font-size: 0.95em; }
     .band-item:last-child { border-bottom: none; }
   </style>
 </head>
@@ -28,10 +49,13 @@
 
   <h2>イベント当日受付</h2>
   
+  <!-- カメラ描画エリア -->
   <div id="reader"></div>
 
+  <!-- 受付結果メッセージ表示エリア -->
   <div id="status" class="result-box" style="display:none;"></div>
 
+  <!-- 集計ダッシュボードエリア -->
   <div class="dashboard">
     <h3>リアルタイム来場状況</h3>
     <div class="stat-row">
@@ -56,7 +80,18 @@
     const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxXp-_d5Cu2CTKzVZe-JXZhDPud6cZ2MZOnW2F2sw7asBcG0OyimUtrSg8gEGx8HeqX/exec";
 
     let isProcessing = false;
-    const html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } });
+
+    // 読み取り速度向上のため fps（フレームレート）を 20 に引き上げ、QR読み取り範囲を最適化
+    const html5QrcodeScanner = new Html5QrcodeScanner(
+      "reader", 
+      { 
+        fps: 20, 
+        qrbox: { width: 220, height: 220 },
+        aspectRatio: 1.0
+      },
+      false
+    );
+    
     html5QrcodeScanner.render(onScanSuccess);
 
     function onScanSuccess(decodedText) {
@@ -84,13 +119,12 @@
       })
       .then(res => res.json())
       .then(data => {
-        // すでに受付済みの場合、確認確認ダイアログを表示
         if (data.alreadyCheckedIn && action === "checkin") {
           showStatus(data.message, "warning");
           setTimeout(() => {
             const confirmCancel = confirm(`${data.name} 様はすでに受付済みです。\n受付を取り消しますか？`);
             if (confirmCancel) {
-              sendCheckIn(email, "cancel"); // キャンセルリクエストを送信
+              sendCheckIn(email, "cancel");
             } else {
               isProcessing = false;
             }
@@ -102,11 +136,12 @@
         if (data.stats) {
           updateStats(data.stats);
         }
-        setTimeout(() => { isProcessing = false; }, 3000);
+        // 連続読み取りを防ぐウェイトを少し短め（2秒）に調整してテンポ良く
+        setTimeout(() => { isProcessing = false; }, 2000);
       })
       .catch(err => {
         showStatus("通信エラーが発生しました", "error");
-        setTimeout(() => { isProcessing = false; }, 3000);
+        setTimeout(() => { isProcessing = false; }, 2000);
       });
     }
 
